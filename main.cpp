@@ -1,8 +1,13 @@
 #include<Windows.h>
 #include<cstdint>
+#include<string>
 
 //ウィンドウプロシージャ
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
+
+void Log(const std::string& message) {
+	OutputDebugStringA(message.c_str());
+}
 
 
 //Windowsアプリでのエントリーポイント(main関数)
