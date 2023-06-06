@@ -13,9 +13,9 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
 
 //OutputDebugStringA関数(出力ウィンドウに文字を出す関数)は、const char*しか受け付けないのでstringを利用できるようにしている関数
 void Log(const std::string& message);
-// string->wstring
+// string->wstring関数
 std::wstring ConvertString(const std::string& str);
-// wstring->string
+// wstring->string関数
 std::string ConvertString(const std::wstring& str);
 
 
@@ -145,7 +145,7 @@ void Log(const std::string& message) {
 	OutputDebugStringA(message.c_str());
 }
 
-// string->wstring
+// string->wstring関数
 std::wstring ConvertString(const std::string& str) {
 	if (str.empty()) {
 		return std::wstring();
@@ -160,7 +160,7 @@ std::wstring ConvertString(const std::string& str) {
 	return result;
 }
 
-// wstring->string
+// wstring->string関数
 std::string ConvertString(const std::wstring& str) {
 	if (str.empty()) {
 		return std::string();
