@@ -5,8 +5,10 @@
 #include<d3d12.h>
 #include<dxgi1_6.h>
 #include<cassert>
+#include <dxgidebug.h>
 #pragma comment(lib,"d3d12.lib")
 #pragma comment(lib,"dxgi.lib")
+#pragma comment(lib,"dxguid.lib")
 
 //ウィンドウプロシージャ
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
@@ -294,6 +296,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 			assert(SUCCEEDED(hr));
 		}
 	}
+
 
 	return 0;
 }
