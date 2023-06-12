@@ -1,7 +1,4 @@
-float4 main( float4 position : POSITION ) : SV_POSITION
-{
-	return position;
-}
+
 struct VertexShaderOutput
 {
     float32_t4 position:SV_POSITION;
