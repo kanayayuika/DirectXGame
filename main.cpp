@@ -2,7 +2,7 @@
 #include<cstdint>
 #include<string>
 #include<format>
-#include<Vector>
+#include<vector>
 #include<d3d12.h>
 #include<dxgi1_6.h>
 #include<cassert>
@@ -32,6 +32,9 @@ IDxcBlob* CompileShader(
 	IDxcCompiler3* dxcCompiler,
 	IDxcIncludeHandler* includeHandler);
 
+struct Vector4 {
+	float x, y, z, w;
+};
 
 
 //Windowsアプリでのエントリーポイント(main関数)
