@@ -33,11 +33,27 @@ IDxcBlob* CompileShader(
 	IDxcIncludeHandler* includeHandler);
 //VertexBufferやConstantBufferなどのBufferResourceを作る関数
 ID3D12Resource* CreateBufferResource(ID3D12Device* device, size_t sizeInBytes);
+
+//Vector3の構造体
+struct Vector3 {
+	float x, y, z;
+};
 //Vector4の構造体
 struct Vector4 {
 	float x, y, z, w;
 };
+//Matrix4x4の構造体
+struct Matrix4x4 {
+	float m[4][4];
+};
 
+struct Transform {
+	Vector3 scale;
+	Vector3 rotate;
+	Vector3 translate;
+};
+
+Matrix4x4 MakeIdentity4x4();
 
 //Windowsアプリでのエントリーポイント(main関数)
 int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
@@ -263,13 +279,17 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 	descriptionRootSignature.Flags =
 		D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
 
-	//RootParameter作成。複数設定できるので配列。今回は結果一つだけなので長さの配列
-	D3D12_ROOT_PARAMETER rootParameters[1] = {};
+	//RootParameter作成。PixelShaderのMaterialとVertexShaderのTransform
+	D3D12_ROOT_PARAMETER rootParameters[2] = {};
 	rootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;    //CBVを使う
 	rootParameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL; //PixelShaderで使う
 	rootParameters[0].Descriptor.ShaderRegister = 0;                    //レジスタ番号0とバインド
+	rootParameters[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;    //CBVを使う
+	rootParameters[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL; //PixelShaderで使う
+	rootParameters[2].Descriptor.ShaderRegister = 0;                    //レジスタ番号0とバインド
 	descriptionRootSignature.pParameters = rootParameters;              //ルートパラメータ配列へのポインタ
 	descriptionRootSignature.NumParameters = _countof(rootParameters);  //配列の長さ
+
 
 	//シリアライズしてバイナリにする
 	ID3DBlob* signatureBlob = nullptr;
@@ -403,6 +423,17 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 	//今回は赤を書き込んでみる
 	*materialData = Vector4(1.0f, 0.0f, 0.0f, 1.0f);
 
+	//WVP用のリソースを作る。Matrix4x4 1つ分のサイズを用意する
+	ID3D12Resource* wvpResource = CreateBufferResource(device, sizeof(Matrix4x4));
+	//マテリアルにデータを書き込む
+	Matrix4x4* wvpData = nullptr;
+	//書き込むためのアドレスを取得
+	wvpResource->Map(0, nullptr, reinterpret_cast<void**>(&wvpData));
+	//今回は赤を書き込んでみる
+	*wvpData = MakeIdentity4x4();
+
+	//wvp用のCBufferの場所を設定
+	commandList->SetGraphicsRootConstantBufferView(1, wvpResource->GetGPUVirtualAddress());
 
 	MSG msg{};
 	//ウィンドウの×ボタンが押されるまでループ
@@ -674,3 +705,12 @@ ID3D12Resource* CreateBufferResource(ID3D12Device* device, size_t sizeInBytes) {
 	return resource;
 }
 
+Matrix4x4 MakeIdentity4x4() {
+	Matrix4x4 m{
+		1,0,0,0,
+		0,1,0,0,
+		0,0,1,0,
+		0,0,0,1,
+	};
+	return m;
+}
