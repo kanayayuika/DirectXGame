@@ -306,10 +306,9 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 	descriptionRootSignature.pParameters = rootParameters;  // ルートパラメータ配列へのポインタ
 	descriptionRootSignature.NumParameters = _countof(rootParameters);  // 配列の長さ
 
-
 	//シリアライズしてバイナリにする
 	ID3DBlob* signatureBlob = nullptr;
-	ID3DBlob*errorBlob = nullptr;
+	ID3DBlob* errorBlob = nullptr;
 	hr = D3D12SerializeRootSignature(&descriptionRootSignature, D3D_ROOT_SIGNATURE_VERSION_1, &signatureBlob, &errorBlob);
 	if (FAILED(hr)) {
 		Log(reinterpret_cast<char*>(errorBlob->GetBufferPointer()));
@@ -448,17 +447,20 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 	//今回は赤を書き込んでみる
 	*wvpData = MakeIdentity4x4();
 
-
-
-	//Transform変数を作る
+	//Transform変数を作る(CBuffer更新のための変数)
 	Transform transform{ {1.0f,1.0f,1.0f},{0.0f,0.0f,0.0f},{0.0f,0.0f,0.0f} };
 
-	//3次元的にする
-	Matrix4x4 cameraMatrix = MakeAffineMatrix(transform.scale, transform.rotate, transform.translate);
+	//カメラもゲーム中に存在するオブジェクトなのでTransformを持つので変数を用意する
+	//下記の設定はzが-5の位置でz+の方向を向いているカメラとなる
+	Transform cameraTransform{ {1.0f,1.0f,1.0f},{0.0f,0.0f,0.0f},{0.0f,0.0f,-5.0f} };
+
+	//これらの情報をもとにWVPMatrixを作成して設定する
+	Matrix4x4 worldMatrix = MakeAffineMatrix(transform.scale, transform.rotate, transform.translate);
+	Matrix4x4 cameraMatrix = MakeAffineMatrix(cameraTransform.scale, cameraTransform.rotate, cameraTransform.translate);
 	Matrix4x4 viewMatrix = Inverse(cameraMatrix);
-	Matrix4x4 projectionMatrix = MakePerspectiveFovMatrix();
-	//WVPMatrixを作る
+	Matrix4x4 projectionMatrix = MakePerspectiveFovMatrix(0.45f, float(kClientWidth) / float(kClientHeight), 0.1f, 100.0f);
 	Matrix4x4 worldViewProjectionMatrix = Multiply(worldMatrix, Multiply(viewMatrix, projectionMatrix));
+	//*transformationMatrixData = worldViewProjectionMatrix;
 
 
 	MSG msg{};
@@ -473,9 +475,17 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 			//ゲームの処理
 
 			//TransformからWorldMatrixを作る
+			//TransformのY軸を更新する
 			transform.rotate.y += 0.03f;
+			//WorldMatrixを作る
 			Matrix4x4 worldMatrix = MakeAffineMatrix(transform.scale, transform.rotate, transform.translate);
+			//CBufferの中身を更新する
 			*wvpData = worldMatrix;
+			Matrix4x4 viewMatrix = Inverse(cameraMatrix);
+			Matrix4x4 projectionMatrix = MakePerspectiveFovMatrix(0.45f,(float)kClientWidth/(float)kClientHeight,0.1f,100.0f);
+			//WVPMatrixを作る
+			Matrix4x4 worldViewProjectionMatrix = Multiply(worldMatrix, Multiply(viewMatrix, projectionMatrix));
+
 
 			//これから書き込むバックバッファのインデックスを取得
 			UINT backBufferIndex = swapChain->GetCurrentBackBufferIndex();
@@ -582,12 +592,13 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 	vertexShaderBlob->Release();
 
 	materialResource->Release();
+	wvpResource->Release();
 
 	//リソースリークチェック(01_03_5ページ)
 	IDXGIDebug1* debug;
 	if (SUCCEEDED(DXGIGetDebugInterface1(0, IID_PPV_ARGS(&debug)))) {
 		debug->ReportLiveObjects(DXGI_DEBUG_ALL, DXGI_DEBUG_RLO_ALL);
-		debug->ReportLiveObjects(DXGI_DEBUG_APP, DXGI_DEBUG_RLO_ALL);
+		debug->ReportLiveObjects(DXGI_DEBUG_APP, DXGI_DEBUG_RLO_ALL); 
 		debug->ReportLiveObjects(DXGI_DEBUG_D3D12, DXGI_DEBUG_RLO_ALL);
 		debug->Release();
 	}
@@ -729,7 +740,7 @@ std::string ConvertString(const std::wstring& str) {
 
 IDxcBlob* CompileShader(
 	//CompilerするShaderファイルへのパス
-	const std::wstring& filePath,     
+	const std::wstring& filePath,
 	//Compilerに使用するProfile
 	const wchar_t* profile,
 	//初期化で生成したものを3つ
@@ -737,8 +748,8 @@ IDxcBlob* CompileShader(
 	IDxcCompiler3* dxcCompiler,
 	IDxcIncludeHandler* includeHandler) {
 
-	       //---------- 1.hlslファイルを読む ----------//
-	//これからシェーダーをコンパイルする旨をログに出す
+	//---------- 1.hlslファイルを読む ----------//
+//これからシェーダーをコンパイルする旨をログに出す
 	Log(ConvertString(std::format(L"Begin CompileShader,path:{},profile:{}\n", filePath, profile)));
 	//hlslファイルを読む
 	IDxcBlobEncoding* shaderSource = nullptr;
@@ -751,7 +762,7 @@ IDxcBlob* CompileShader(
 	shaderSourceBuffer.Size = shaderSource->GetBufferSize();
 	shaderSourceBuffer.Encoding = DXC_CP_UTF8;//UTF8の文字コードであることを通知
 
-	       //---------- 2.Compileする ----------//
+	//---------- 2.Compileする ----------//
 	LPCWSTR arguments[] = {
 	filePath.c_str(), // コンパイル対象のhlslファイル名
 	L"-E", L"main", // エントリーポイントの指定。基本的にmain以外にはしない
@@ -781,7 +792,7 @@ IDxcBlob* CompileShader(
 		Log(shaderError->GetStringPointer());
 		// 警告・エラーダメゼッタイ
 		assert(false);
-	}  
+	}
 
 	//---------- 4.Compile結果を受け取って返す ----------//
 	// コンパイル結果から実行用のバイナリ部分を取得
