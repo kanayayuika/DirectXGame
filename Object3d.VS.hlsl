@@ -5,10 +5,6 @@ struct TransformationMatrix
 };
 ConstantBuffer<TransformationMatrix> gTransformationMatrix : register(b0);
 
-struct VertexShaderOutput
-{
-    float4 position:SV_POSITION;
-};
 struct VertexShaderInput
 {
     float4 position : POSITION0;
