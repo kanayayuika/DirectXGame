@@ -533,6 +533,11 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 			float clearColor[] = { 0.1f,0.25f,0.5f,0.1f };//青っぽい色。RGBAの順
 			commandList->ClearRenderTargetView(rtvHandles[backBufferIndex], clearColor, 0, nullptr);
 
+			//ImGuiを描画する
+			//描画用のDescriptorHeapの設定(02_03_16ページ)
+			ID3D12DescriptorHeap* descriptorHeaps[] = { srvDescriptorHeap };
+			commandList->SetDescriptorHeaps(1, descriptorHeaps);
+
 			//コマンドを積む
 			commandList->RSSetViewports(1, &viewport);                //Viewportを設定
 			commandList->RSSetScissorRects(1, &scissorRect);          //Scirssorを設定
@@ -553,6 +558,9 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 			//描画！(DrawCall/ドローコール)。3頂点で1つのインスタンス。インスタンスについては今後
 			commandList->DrawInstanced(3, 1, 0, 0);
 
+
+			//実際のCcommandListのImGuiの描画コマンドを積む(02_03_16ページ)
+			ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), commandList);
 
 			//画面に描く処理は全て終わり、画面に映すので、状態を遷移
 			//今回はRenderTargetからPresentにする
@@ -593,6 +601,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 	CloseHandle(fenceEvent);
 	fence->Release();
 	rtvDescriptorHeap->Release();
+	srvDescriptorHeap->Release();
 	swapChainResources[0]->Release();
 	swapChainResources[1]->Release();
 	swapChain->Release();
@@ -619,6 +628,9 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
 	materialResource->Release();
 	wvpResource->Release();
+	rtvDescriptorHeap->Release();
+	srvDescriptorHeap->Release();
+	
 
 	//リソースリークチェック(01_03_5ページ)
 	//ここがエラー出たら上のReleaseができていないところがある可能性〇
