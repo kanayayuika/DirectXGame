@@ -8,6 +8,7 @@
 #include<cassert>
 #include <dxgidebug.h>
 #include<dxcapi.h>
+#include "externals/DirectXTex/DirectXTex.h"
 //ImGuiを使うためにincludeと関数の外部宣言を行う
 #include "externals/imgui/imgui.h"
 #include"externals/imgui/imgui_impl_dx12.h"
@@ -80,8 +81,20 @@ Matrix4x4 MakeAffineMatrix(const Vector3& scale, const Vector3& rotate, const Ve
 //DescriptorHeap関数
 ID3D12DescriptorHeap* CreateDescriptorHeap(ID3D12Device* device, D3D12_DESCRIPTOR_HEAP_TYPE heapType, UINT numDescriptors, bool shaderVisible);
 
+//Textureを読むためのLoadTexture関数
+DirectX::ScratchImage LoadTexture(const std::string& filePath);
+
+//DirectX12のTextureResource関数(02_04_テクスチャを貼ろう_15ページ)
+ID3D12Resource* CreateTextureResource(ID3D12Device* device, const DirectX::TexMetadata& metadata);
+
+//TextureResourceにデータを転送する関数
+void UploadTextureData(ID3D12Resource* texture, const DirectX::ScratchImage& mipImages);
+
 //Windowsアプリでのエントリーポイント(main関数)
 int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
+
+	//main関数の先頭で以下のようにして、COMの初期化を行う
+	CoInitializeEx(0, COINIT_MULTITHREADED);
 	WNDCLASS wc{};
 	//ウィンドウプロシージャ
 	wc.lpfnWndProc = WindowProc;
@@ -245,7 +258,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
 	// ディスクリプタヒープの生成(02_03_12ページ)
 	//RTV用のヒープでディスクリプタの数は2。RTVはShader内で触るものではないので、ShaderVisibleはfalse
-	ID3D12DescriptorHeap* rtvDescriptorHeap = CreateDescriptorHeap(device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV,2,false);
+	ID3D12DescriptorHeap* rtvDescriptorHeap = CreateDescriptorHeap(device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 2, false);
 	//SRV用のヒープでディスクリプタの数は128。SRVはShader内で触るものなので、ShaderVisibleはtrue
 	ID3D12DescriptorHeap* srvDescriptorHeap = CreateDescriptorHeap(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 128, true);
 
@@ -480,6 +493,12 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 		srvDescriptorHeap->GetCPUDescriptorHandleForHeapStart(),
 		srvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
 
+	//Textureを読んで転送する
+	DirectX::ScratchImage mipImages = LoadTexture("resources/uvChecker.png");
+	const DirectX::TexMetadata& metadata = mipImages.GetMetadata();
+	ID3D12Resource* textureResource = CreateTextureResource(device, metadata);
+	UploadTextureData(textureResource, mipImages);
+
 	MSG msg{};
 	//ウィンドウの×ボタンが押されるまでループ
 	while (msg.message != WM_QUIT) {
@@ -496,7 +515,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 			//---------- ゲームの処理 ----------//
 			//開発用UIの処理(開発用のUIを出す場合はここをゲーム固有の処理に書き換える)(02_03_15ページ)
 			ImGui::ShowDemoWindow();
-			
+
 			//TransformからWorldMatrixを作る
 			//TransformのY軸を更新する
 			transform.rotate.y += 0.03f;
@@ -505,7 +524,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 			//CBufferの中身を更新する
 			*wvpData = worldMatrix;
 			Matrix4x4 viewMatrix = Inverse(cameraMatrix);
-			Matrix4x4 projectionMatrix = MakePerspectiveFovMatrix(0.45f,(float)kClientWidth/(float)kClientHeight,0.1f,100.0f);
+			Matrix4x4 projectionMatrix = MakePerspectiveFovMatrix(0.45f, (float)kClientWidth / (float)kClientHeight, 0.1f, 100.0f);
 			//WVPMatrixを作る
 			Matrix4x4 worldViewProjectionMatrix = Multiply(worldMatrix, Multiply(viewMatrix, projectionMatrix));
 
@@ -598,6 +617,9 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 		}
 	}
 
+	//ゲーム終了時にCOMの終了処理を行う
+	CoUninitialize();
+
 	CloseHandle(fenceEvent);
 	fence->Release();
 	rtvDescriptorHeap->Release();
@@ -630,14 +652,14 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 	wvpResource->Release();
 	rtvDescriptorHeap->Release();
 	srvDescriptorHeap->Release();
-	
+
 
 	//リソースリークチェック(01_03_5ページ)
 	//ここがエラー出たら上のReleaseができていないところがある可能性〇
 	IDXGIDebug1* debug;
 	if (SUCCEEDED(DXGIGetDebugInterface1(0, IID_PPV_ARGS(&debug)))) {
 		debug->ReportLiveObjects(DXGI_DEBUG_ALL, DXGI_DEBUG_RLO_ALL);
-		debug->ReportLiveObjects(DXGI_DEBUG_APP, DXGI_DEBUG_RLO_ALL); 
+		debug->ReportLiveObjects(DXGI_DEBUG_APP, DXGI_DEBUG_RLO_ALL);
 		debug->ReportLiveObjects(DXGI_DEBUG_D3D12, DXGI_DEBUG_RLO_ALL);
 		debug->Release();
 	}
@@ -989,4 +1011,73 @@ ID3D12DescriptorHeap* CreateDescriptorHeap(ID3D12Device* device, D3D12_DESCRIPTO
 	HRESULT hr = device->CreateDescriptorHeap(&descriptorHeapDesc, IID_PPV_ARGS(&descriptorHeap));
 	assert(SUCCEEDED(hr));
 	return descriptorHeap;
+}
+
+
+//Textureを読むためのLoadTexture関数(02_04_テクスチャを貼ろう_14ページ)
+DirectX::ScratchImage LoadTexture(const std::string& filePath) {
+	//テクスチャファイルを読んでプログラムで扱えるようにする
+	DirectX::ScratchImage image{};
+	std::wstring filePathW = ConvertString(filePath);
+	HRESULT hr = DirectX::LoadFromWICFile(filePathW.c_str(), DirectX::WIC_FLAGS_FORCE_SRGB, nullptr, image);
+	assert(SUCCEEDED(hr));
+
+	//ミニマップの作製
+	DirectX::ScratchImage mipImages{};
+	hr = DirectX::GenerateMipMaps(image.GetImages(), image.GetImageCount(), image.GetMetadata(), DirectX::TEX_FILTER_SRGB, 0, mipImages);
+	assert(SUCCEEDED(hr));
+
+	//ミニマップ付きのデータを返す
+	return mipImages;
+}
+
+//DirectX12のTextureResource関数(02_04_テクスチャを貼ろう_15ページ)
+ID3D12Resource* CreateTextureResource(ID3D12Device* device, const DirectX::TexMetadata& metadata) {
+
+	//1.metadataを基にResourceの設定
+	D3D12_RESOURCE_DESC resourceDesc{};
+	resourceDesc.Width = UINT(metadata.width);//Textureの幅
+	resourceDesc.Height = UINT(metadata.height);//Textureの高さ
+	resourceDesc.MipLevels = UINT16(metadata.mipLevels);//mipmapの数
+	resourceDesc.DepthOrArraySize = UINT16(metadata.arraySize);//奥行き or 配列Textureの配列数
+	resourceDesc.Format = metadata.format;//Textureのformat
+	resourceDesc.SampleDesc.Count = 1;//サンプリングカウント。1固定
+	resourceDesc.Dimension = D3D12_RESOURCE_DIMENSION(metadata.dimension);//Textureの次元数。普段使っているのは2次元
+	//2.利用するHeapの設定(非常に特殊な運用。02_04exで一般的なケース版がある)
+	D3D12_HEAP_PROPERTIES heapProperties{};
+	heapProperties.Type = D3D12_HEAP_TYPE_CUSTOM;//細かい設定を行う
+	heapProperties.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_WRITE_BACK;//WriteBackポリシーでCPUアクセス可能
+	heapProperties.MemoryPoolPreference = D3D12_MEMORY_POOL_L0;//プロセッサの近くに配置
+	//3.Resourceの生成
+	ID3D12Resource* resource = nullptr;
+	HRESULT hr = device->CreateCommittedResource(
+		&heapProperties,//Heapの設定
+		D3D12_HEAP_FLAG_NONE,//Heapの特殊な設定。特になし。
+		&resourceDesc,//Resourceの設定
+		D3D12_RESOURCE_STATE_GENERIC_READ,//初回のResourceState。Textureは基本読むだけ
+		nullptr,//Clear最適値。使わないのでnullptr
+		IID_PPV_ARGS(&resource));//作成するResourceポインタへのポインタ
+		assert(SUCCEEDED(hr));
+		return resource;
+
+}
+
+//TextureResourceにデータを転送する関数
+void UploadTextureData(ID3D12Resource* texture, const DirectX::ScratchImage& mipImages) {
+	//Meta情報を取得
+	const DirectX::TexMetadata& metadata = mipImages.GetMetadata();
+	//全MipMapについて
+	for (size_t mipLevel = 0; mipLevel < metadata.mipLevels; ++mipLevel) {
+		//MipMapLevelを指定して各Imageを取得
+		const DirectX::Image* img = mipImages.GetImage(mipLevel, 0, 0);
+		//Textureに転送
+		HRESULT hr = texture->WriteToSubresource(
+			UINT(mipLevel),
+			nullptr,             //全領域へコピー
+			img->pixels,         //元データアドレス
+			UINT(img->rowPitch), //1ラインサイズ
+			UINT(img->slicePitch)//1枚サイズ
+		);
+		assert(SUCCEEDED(hr));
+	}
 }
