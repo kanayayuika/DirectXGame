@@ -1,0 +1,3 @@
+// cpp / h の文字コードを「utf-8」に強制
+[*.{cpp,h}]
+charset = utf-8
