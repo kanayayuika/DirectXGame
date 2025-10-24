@@ -25,7 +25,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
 }
 #pragma endregion
 
-#pragma region Log関数
+#pragma region Log関数(CG2_00_04_8P & 9P)
 // Log関数(stringのみ受け付ける関数)
 void Log(const std::string& message) {
 	OutputDebugStringA(message.c_str());
@@ -113,13 +113,13 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 	ShowWindow(hwnd, SW_SHOW);
 #pragma endregion
 
-#pragma region DXGIFactoryの生成
+#pragma region DXGIFactoryの生成(CG2_00_05_4P)
 	IDXGIFactory7* dxgiFactory = nullptr;
 	HRESULT hr = CreateDXGIFactory(IID_PPV_ARGS(&dxgiFactory));
 	assert(SUCCEEDED(hr));
 #pragma endregion
 
-#pragma region GPUの決定
+#pragma region GPUの決定（映像を生み出す）(CG2_00_05_5P)
 	// 私用するアダプタ用の変数。最初にnullptrを入れておく
 	IDXGIAdapter4* useAdapter = nullptr;
 	// 良い順にアダプタを読む
@@ -140,7 +140,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 	assert(useAdapter != nullptr);
 #pragma endregion
 
-#pragma region D3D12Deviceの生成
+#pragma region D3D12Deviceの生成(CG2_00_05_6P)
 	ID3D12Device* device = nullptr;
 	// 昨日レベルとログ出力用の文字列
 	D3D_FEATURE_LEVEL featureLevels[] = {
@@ -175,7 +175,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 			// ゲームの処理
 		}
 	}
-	
+
 
 	// 出力ウィンドウへの文字出力
 	OutputDebugStringA("Hello,DirectX!\n");
