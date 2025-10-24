@@ -1,3 +1,4 @@
+#pragma region インクルード
 #include <Windows.h>
 #include <cstdint>// int32_tを使う用
 #include <format>
@@ -12,6 +13,10 @@
 // Debug用のあれやこれを使えるようにする(CG2_00_06)
 #include <dbghelp.h>
 #pragma comment(lib,"Dbghelp.lib")
+// ReportLiveObjects(CG2_01_03_5P)
+#include <dxgidebug.h>
+#pragma comment(lib,"dxguid.lib")
+#pragma endregion
 
 #pragma region ウィンドウプロシージャ(CG2_00_03_4P)
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
@@ -229,7 +234,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 		infoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_CORRUPTION, true);
 		// エラー時に止まる
 		infoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_ERROR, true);
-		// 警告時に止まる
+		// 警告時に止まる（警告一発目で停止するのでその後の流れが見れなくて困る場合は、ここをコメントアウトする）
 		infoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_WARNING, true);
 		// 解放
 		infoQueue->Release();
@@ -420,9 +425,35 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 		}
 	}
 
+#pragma region 解放処理(CG2_01_03_7P)基本解放処理は生成と逆順に行う
+	CloseHandle(fenceEvent);
+	fence->Release();
+	rtvDescriptorHeap->Release();
+	swapChainResources[0]->Release();
+	swapChainResources[1]->Release();
+	swapChain->Release();
+	commandList->Release();
+	commandAllocator->Release();
+	commandQueue->Release();
+	device->Release();
+	useAdapter->Release();
+	dxgiFactory->Release();
+#ifdef _DEBUG
+	debugController->Release();
+#endif
+	CloseWindow(hwnd);
+#pragma endregion
 
-	// 出力ウィンドウへの文字出力
-	OutputDebugStringA("Hello,DirectX!\n");
+#pragma region ReportLiveObjects(CG2_01_03_5P)
+	// リソースチェック
+	IDXGIDebug1* debug;
+	if (SUCCEEDED(DXGIGetDebugInterface1(0, IID_PPV_ARGS(&debug)))) {
+		debug->ReportLiveObjects(DXGI_DEBUG_ALL, DXGI_DEBUG_RLO_ALL);
+		debug->ReportLiveObjects(DXGI_DEBUG_APP, DXGI_DEBUG_RLO_ALL);
+		debug->ReportLiveObjects(DXGI_DEBUG_D3D12, DXGI_DEBUG_RLO_ALL);
+		debug->Release();
+	}
+#pragma endregion
 
 	return 0;
 }
