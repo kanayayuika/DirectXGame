@@ -21,11 +21,22 @@
 // DXCの初期化(CG2_02_00_21p)
 #include <dxcapi.h>
 #pragma comment(lib,"dxcompiler.lib")
-
+// ImGuiのInclude(CG2_02_03_14P)
+#ifdef USE_IMGUI
+#include "externals/imgui/imgui.h"
+#include "externals/imgui/imgui_impl_dx12.h"
+#include "externals/imgui/imgui_impl_win32.h"
+extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
+#endif
 #pragma endregion
 
 #pragma region ウィンドウプロシージャ(CG2_00_03_4P)
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
+#ifdef USE_IMGUI
+	if (ImGui_ImplWin32_WndProcHandler(hwnd, msg, wparam, lparam)) {
+		return true;
+	}
+#endif
 	// メッセージに応じてゲーム固有の処理を行う
 	switch (msg) {
 		// ウィンドウが破棄された
@@ -201,6 +212,21 @@ ID3D12Resource* CreateBufferResource(ID3D12Device* device, size_t sizeInBytes) {
 	HRESULT hr = device->CreateCommittedResource(&uploadHeapProperties, D3D12_HEAP_FLAG_NONE, &resourceDesc, D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&resource));
 	assert(SUCCEEDED(hr));
 	return resource;
+}
+#pragma endregion
+
+#pragma region DescriptorHeap作成関数(CG2_02_03_12P)
+ID3D12DescriptorHeap* CreateDescriptorHeap(ID3D12Device* device, D3D12_DESCRIPTOR_HEAP_TYPE heapType, UINT numDescriptors, bool shaderVisible) {
+	// ディスクリプタヒープの生成
+	ID3D12DescriptorHeap* descriptorHeap = nullptr;
+	D3D12_DESCRIPTOR_HEAP_DESC descriptorHeapDesc{};
+	descriptorHeapDesc.Type = heapType;// レンダーターゲットビュー用
+	descriptorHeapDesc.NumDescriptors = numDescriptors;// ダブルバッファ用に2つ。多くても別に構わない
+	descriptorHeapDesc.Flags = shaderVisible ? D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE : D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+	HRESULT hr = device->CreateDescriptorHeap(&descriptorHeapDesc, IID_PPV_ARGS(&descriptorHeap));
+	// ディスクリプタヒープが作れなかったので起動できない
+	assert(SUCCEEDED(hr));
+	return descriptorHeap;
 }
 #pragma endregion
 
@@ -391,14 +417,10 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 #pragma endregion
 
 #pragma region DescriptorHeapを生成する(CG2_01_00_18P)
-	// ディスクリプタヒープの生成
-	ID3D12DescriptorHeap* rtvDescriptorHeap = nullptr;
-	D3D12_DESCRIPTOR_HEAP_DESC rtvDescriptorHeapDesc{};
-	rtvDescriptorHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;// レンダーターゲットビュー用
-	rtvDescriptorHeapDesc.NumDescriptors = 2;// ダブルバッファ用に2つ。多くても別に構わない
-	hr = device->CreateDescriptorHeap(&rtvDescriptorHeapDesc, IID_PPV_ARGS(&rtvDescriptorHeap));
-	// ディスクリプタヒープが作れなかったので起動できない
-	assert(SUCCEEDED(hr));
+	// RTV用のヒープでディスクリプタの数は2。RTVはShader内で触るものではないので、ShaderVisibleはfalse
+	ID3D12DescriptorHeap* rtvDescriptorHeap = CreateDescriptorHeap(device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 2, false);
+	// SRV用のヒープでディスクリプタの数は128。SRVはShader内で触るものなので、ShaderVisibleはtrue
+	ID3D12DescriptorHeap* srvDescriptorHeap = CreateDescriptorHeap(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 128, true);
 #pragma endregion
 
 #pragma region SwapChainからResourceを引っ張ってくる(CG2_01_00_19P)
@@ -627,19 +649,78 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 	Transform transform{ {1.0f,1.0f,1.0f},{0.0f,0.0f,0.0f},{0.0f,0.0f,0.0f} };
 #pragma endregion
 
+#pragma region ImGuiの初期化(CG2_02_03_15P)
+#ifdef USE_IMGUI
+	IMGUI_CHECKVERSION();
+	ImGui::CreateContext();
+	ImGui::StyleColorsDark();
+	ImGui_ImplWin32_Init(hwnd);
+	ImGui_ImplDX12_Init(device,
+		swapChainDesc.BufferCount,
+		rtvDesc.Format, srvDescriptorHeap,
+		srvDescriptorHeap->GetCPUDescriptorHandleForHeapStart(),
+		srvDescriptorHeap->GetGPUDescriptorHandleForHeapStart()
+	);
+#endif
+#pragma endregion
 	MSG msg{};
 	// ウィンドウの×ボタンが押されるまでループ
 	while (msg.message != WM_QUIT) {
+
 		// Windowにメッセージが来てたら最優先で処理させる
 		if (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE)) {
 			TranslateMessage(&msg);
 			DispatchMessage(&msg);
 		}
 		else {
-			// ゲームの処理
+
+			/*--------------------
+			* 　　　更新処理
+			--------------------*/
+#pragma region ImGui_フレーム開始報告(CG2_02_03_16P)
+#ifdef USE_IMGUI
+			ImGui_ImplDX12_NewFrame();
+			ImGui_ImplWin32_NewFrame();
+			ImGui::NewFrame();
+#endif
+#pragma endregion
+
+#pragma region ImGui_ゲームの更新処理_開発用GUI処理(CG2_02_03_16P)
+			// 開発用GUIの処理
+#ifdef USE_IMGUI
+			ImGui::ShowDemoWindow();
+#endif
+#pragma endregion
+
+#pragma region Transformの更新処理(CG2_02_02_15P)
+			transform.rotate.x += 0.03f;
+			/*Matrix4x4 worldMatrix = MakeAffineMatrix(transform.scale, transform.rotate, transform.translate);
+			*wvpData = worldMatrix;*/
+#pragma endregion
+
+#pragma region 3次元的にする(CG2_02_02_19P)
+			Transform cameraTransform{ {1.0f,1.0f,1.0f},{0.0f,0.0f,0.0f},{0.0f,0.0f,-5.0f} };
+			Matrix4x4 projectionMatrix = MakePerspectiveFovMatrix(0.45f, float(kClientWidth) / float(kClientHeight), 0.1f, 100.0f);
+			Matrix4x4 worldMatrix = MakeAffineMatrix(transform.scale, transform.rotate, transform.translate);
+			Matrix4x4 cameraMatrix = MakeAffineMatrix(cameraTransform.scale, cameraTransform.rotate, cameraTransform.translate);
+			Matrix4x4 viewMatrix = Inverse(cameraMatrix);
+			Matrix4x4 worldViewProjectionMatrix = Multiply(worldMatrix, Multiply(viewMatrix, projectionMatrix));
+
+			*wvpData = worldViewProjectionMatrix;
+#pragma endregion
+
+			/*--------------------
+			* 　　描画準備処理
+			--------------------*/
+#pragma region ImGui_ゲームの更新処理_内部コマンド生成(CG2_02_03_16P)
+#ifdef USE_IMGUI
+			// ImGuiの内部コマンドを生成する(ゲーム処理後、描画処理前)
+			ImGui::Render();
+#endif
+#pragma endregion
 
 #pragma region 画面の色設定(CG2_01_00_26P)
-// これから書き込むバックバッファのインデックスを取得
+			// これから書き込むバックバッファのインデックスを取得
 			UINT backBufferIndex = swapChain->GetCurrentBackBufferIndex();
 #pragma endregion
 
@@ -683,9 +764,23 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 			// wvp用のCBufferの場所を設定
 			commandList->SetGraphicsRootConstantBufferView(1, wvpResource->GetGPUVirtualAddress());// RootParameter[1]に対してCBVの設定を行っている
 #pragma endregion
-			// 描画！（DrawCall/ドローコール）。3頂点で1つのインスタンス。
-			commandList->DrawInstanced(3, 1, 0, 0);
 #pragma endregion
+
+#pragma region ImGuiを描画する(CG2_02_03_17P)
+			// 描画用のDescriptorHeapの設定
+			ID3D12DescriptorHeap* descriptorHeaps[] = { srvDescriptorHeap };
+			commandList->SetDescriptorHeaps(1, descriptorHeaps);
+#pragma endregion
+
+			/*--------------------
+			* 　　描画本体処理
+			--------------------*/
+			// 三角形描画！（DrawCall/ドローコール）。3頂点で1つのインスタンス。
+			commandList->DrawInstanced(3, 1, 0, 0);
+#ifdef USE_IMGUI
+			// 実際のcommandListのImGuiの描画コマンドを積む
+			ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), commandList);
+#endif
 
 #pragma region 画面表示できるようにする(CG2_01_02_8P)
 			// 画面に描く処理はすべて終わり、画面に映すので、状態を遷移
@@ -710,8 +805,12 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 			swapChain->Present(1, 0);
 #pragma endregion
 
+			/*-----------------------------------
+　　　　　　　*  フレーム終了処理（同期＆次フレーム準備）
+　　　　　　　-----------------------------------*/
+
 #pragma region GPUにSignalを送る(CG2_01_02_16P)
-			// Fenceの値を更新
+	   // Fenceの値を更新
 			fenceValue++;
 			// GPUがここまでたどり着いたときに、Fenceの値を指定した値に代入するようにSignalを送る
 			commandQueue->Signal(fence, fenceValue);
@@ -737,26 +836,21 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 			assert(SUCCEEDED(hr));
 #pragma endregion
 
-#pragma region Transformを使ってCBufferを更新する(CG2_02_02_15P)
-			transform.rotate.x += 0.03f;
-			/*Matrix4x4 worldMatrix = MakeAffineMatrix(transform.scale, transform.rotate, transform.translate);
-			*wvpData = worldMatrix;*/
-#pragma endregion
-#pragma region 3次元的にする(CG2_02_02_19P)
-			Transform cameraTransform{ {1.0f,1.0f,1.0f},{0.0f,0.0f,0.0f},{0.0f,0.0f,-5.0f} };
-			Matrix4x4 projectionMatrix = MakePerspectiveFovMatrix(0.45f, float(kClientWidth) / float(kClientHeight), 0.1f, 100.0f);
-			Matrix4x4 worldMatrix = MakeAffineMatrix(transform.scale, transform.rotate, transform.translate);
-			Matrix4x4 cameraMatrix = MakeAffineMatrix(cameraTransform.scale, cameraTransform.rotate, cameraTransform.translate);
-			Matrix4x4 viewMatrix = Inverse(cameraMatrix);
-			Matrix4x4 worldViewProjectionMatrix = Multiply(worldMatrix, Multiply(viewMatrix, projectionMatrix));
-
-			*wvpData = worldViewProjectionMatrix;
-#pragma endregion
 		}
 	}
 
+#pragma region ImGui終了処理（初期化と逆順に行う）(CG2_02_03_18P)
+#ifdef USE_IMGUI
+	ImGui_ImplDX12_Shutdown();
+	ImGui_ImplWin32_Shutdown();
+	ImGui::DestroyContext();
+#endif
+#pragma endregion
+
 #pragma region 解放処理(CG2_01_03_7P)基本解放処理は生成と逆順に行う
 	// PSO解放処理
+	rtvDescriptorHeap->Release();
+	srvDescriptorHeap->Release();
 	materialResource->Release();
 	wvpResource->Release();
 	vertexResource->Release();
@@ -771,7 +865,6 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
 	CloseHandle(fenceEvent);
 	fence->Release();
-	rtvDescriptorHeap->Release();
 	swapChainResources[0]->Release();
 	swapChainResources[1]->Release();
 	swapChain->Release();
