@@ -28,6 +28,11 @@ struct Transform {
 	Vector3 translate;
 };
 
+struct VertexData {
+	Vector4 position;
+	Vector2 texcoord;
+};
+
 Matrix4x4 MakeIdentity4x4() {
 	Matrix4x4 identity;
 
