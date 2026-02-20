@@ -109,7 +109,18 @@ Matrix4x4 MakePerspectiveFovMatrix(float fovY, float aspectRatio, float nearZ, f
 	mat.m[3][2] = -nearZ * farZ / (farZ - nearZ);
 	return mat;
 }
+Matrix4x4 MakeOrthographicMatrix(const float left, const float top, const float right, const float bottom,const float nearClip, const float farClip) {
+	Matrix4x4 result = MakeIdentity4x4();
 
+	result.m[0][0] = 2.0f / (right - left);
+	result.m[1][1] = 2.0f / (top - bottom);
+	result.m[2][2] = 1.0f / (farClip - nearClip);
+	result.m[3][0] = (left + right) / (left - right);
+	result.m[3][1] = (top + bottom) / (bottom - top);
+	result.m[3][2] = nearClip / (nearClip - farClip);
+
+	return result;
+}
 Matrix4x4 MakeTranslateMatrix(const Vector3& translate) {
 	Matrix4x4 result{};
 	result.m[0][0] = 1.0f;

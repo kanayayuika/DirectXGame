@@ -757,7 +757,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
 #pragma endregion
 
-#pragma region 描画リソース準備（頂点・定数バッファ・Viewport等）
+#pragma region Triangle用_描画リソース準備（頂点・VBV・頂点データ）
 
 #pragma region VertexResourceを生成する(CG2_02_00_42P)(CG2_02_01_12Pで関数化)
 
@@ -798,7 +798,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 	vertexBufferView.StrideInBytes = sizeof(VertexData);
 #pragma endregion
 
-#pragma region Resourceにデータを書き込む(CG2_02_00_44P)(CG2_03_00_31P)
+#pragma region Resourceにデータを書き込む（三角形）(CG2_02_00_44P)(CG2_03_00_31P)
 	// 頂点リソースにデータを書き込む
 	VertexData* vertexData = nullptr;
 	// 書き込むためのアドレスを取得
@@ -830,6 +830,58 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 	vertexData[5].position = { 0.5f,-0.5f,-0.5f,1.0f };
 	vertexData[5].texcoord = { 1.0f,1.0f };
 #pragma endregion
+
+#pragma endregion
+
+#pragma region Sprite用_描画リソース準備（頂点・VBV・頂点データ）(CG2_04_00_9P)
+	// Sprite用の頂点リソースを作る
+	ID3D12Resource* vertexResourceSprite = CreateBufferResource(device, sizeof(VertexData) * 6);
+
+	// 頂点バッファビューを作成する
+	D3D12_VERTEX_BUFFER_VIEW vertexBufferViewSprite{};
+	// リソースの先頭アドレスから使う
+	vertexBufferViewSprite.BufferLocation = vertexResourceSprite->GetGPUVirtualAddress();
+	// 使用するリソースのサイズは頂点6つ分のサイズ
+	vertexBufferViewSprite.SizeInBytes = sizeof(VertexData) * 6;
+	// 1頂点あたりのサイズ
+	vertexBufferViewSprite.StrideInBytes = sizeof(VertexData);
+
+	// 頂点データの設定
+	VertexData* vertexDataSprite = nullptr;
+	vertexResourceSprite->Map(0, nullptr, reinterpret_cast<void**>(&vertexDataSprite));
+
+	// 1枚目の三角形
+	vertexDataSprite[0].position = { 0.0f,360.0f,0.0f,1.0f };// 左下
+	vertexDataSprite[0].texcoord = { 0.0f,1.0f };
+	vertexDataSprite[1].position = { 0.0f,0.0f,0.0f,1.0f };// 左下
+	vertexDataSprite[1].texcoord = { 0.0f,0.0f };
+	vertexDataSprite[2].position = { 640.0f,360.0f,0.0f,1.0f };// 左下
+	vertexDataSprite[2].texcoord = { 1.0f,1.0f };
+
+	// 2枚目の三角形
+	vertexDataSprite[3].position = { 0.0f,0.0f,0.0f,1.0f };// 左下
+	vertexDataSprite[3].texcoord = { 0.0f,0.0f };
+	vertexDataSprite[4].position = { 640.0f,0.0f,0.0f,1.0f };// 左下
+	vertexDataSprite[4].texcoord = { 1.0f,0.0f };
+	vertexDataSprite[5].position = { 640.0f,360.0f,0.0f,1.0f };// 左下
+	vertexDataSprite[5].texcoord = { 1.0f,1.0f };
+
+	// Transform周りを作る
+	// Sprite用のTransformMatrix用のリソースを作る。Matrix4x4 1つ分のサイズを用意する
+	ID3D12Resource* transformationMatrixResourceSprite = CreateBufferResource(device, sizeof(Matrix4x4));
+	// データを書き込む
+	Matrix4x4* transformationMatrixDataSprite = nullptr;
+	// 書き込むためのアドレスを取得
+	transformationMatrixResourceSprite->Map(0, nullptr, reinterpret_cast<void**>(&transformationMatrixDataSprite));
+	// 単位行列を書き込んでおく
+	*transformationMatrixDataSprite = MakeIdentity4x4();
+
+	// CPUで動かす用のTransformを作る
+	Transform transformSprite{ {1.0f,1.0f,1.0f},{0.0f,0.0f,0.0f},{0.0f,0.0f,0.0f} };
+
+#pragma endregion
+
+#pragma region 描画リソース準備（Viewport等）
 
 #pragma region ViewportとScissor(シザー)(CG2_02_00_46P)
 	// ビューポート
@@ -924,6 +976,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 			// 開発用GUIの処理
 #ifdef USE_IMGUI
 			ImGui::ShowDemoWindow();
+			ImGui::SliderFloat3("translateSprite", &transformSprite.translate.x, 0.0f, 1000.0f);
 #endif
 #pragma endregion
 
@@ -943,6 +996,16 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
 			*wvpData = worldViewProjectionMatrix;
 #pragma endregion
+
+#pragma region WVPを作って書き込む(CG2_04_00_12P)
+			// Sprite用のWorldViewProjection<atrixを作る
+			Matrix4x4 worldMatrixSprite = MakeAffineMatrix(transformSprite.scale, transformSprite.rotate, transformSprite.translate);
+			Matrix4x4 viewMatrixSprite = MakeIdentity4x4();
+			Matrix4x4 projectionMatrixSprite = MakeOrthographicMatrix(0.0f, 0.0f, float(kClientWidth), float(kClientHeight), 0.0f, 100.0f);
+			Matrix4x4 worldViewProjectionMatrixSprite = Multiply(worldMatrixSprite, Multiply(viewMatrixSprite, projectionMatrixSprite));
+			*transformationMatrixDataSprite = worldViewProjectionMatrixSprite;
+#pragma endregion
+
 
 			/*--------------------
 			* 　　描画準備処理
@@ -1023,6 +1086,19 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 			--------------------*/
 			// 三角形描画！（DrawCall/ドローコール）。3頂点で1つのインスタンス。
 			commandList->DrawInstanced(6, 1, 0, 0);
+#pragma region Spriteを描画する
+			// Sprite用のVBVに切り替え
+			commandList->IASetVertexBuffers(0, 1, &vertexBufferViewSprite);
+
+			// Sprite用のTransform（WVP）に切り替え
+			commandList->SetGraphicsRootConstantBufferView(
+				1,
+				transformationMatrixResourceSprite->GetGPUVirtualAddress()
+			);
+
+			// Sprite描画！（2D）
+			commandList->DrawInstanced(6, 1, 0, 0);
+#pragma endregion
 #ifdef USE_IMGUI
 			// 実際のcommandListのImGuiの描画コマンドを積む
 			ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), commandList);
@@ -1103,6 +1179,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 	rtvDescriptorHeap->Release();
 	materialResource->Release();
 	wvpResource->Release();
+	transformationMatrixResourceSprite->Release();
+	vertexResourceSprite->Release();
 	vertexResource->Release();
 	graphicsPipelineState->Release();
 	signatureBlob->Release();
