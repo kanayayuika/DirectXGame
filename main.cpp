@@ -343,6 +343,12 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
 #pragma region Windows/COM の初期化
 
+#pragma region 球の設定
+	const uint32_t kSubdivision = 16;// 16 or 32
+	const uint32_t kSphereVertexCount = kSubdivision * kSubdivision * 6;
+#pragma endregion
+
+
 #pragma region COMの初期化(CG2_03_00_13P)
 	CoInitializeEx(0, COINIT_MULTITHREADED);
 #pragma endregion
@@ -761,7 +767,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
 #pragma region VertexResourceを生成する(CG2_02_00_42P)(CG2_02_01_12Pで関数化)
 
-	ID3D12Resource* vertexResource = CreateBufferResource(device, sizeof(VertexData) * 6);// 2つの三角形なので6頂点必要。
+	ID3D12Resource* vertexResource = CreateBufferResource(device, sizeof(VertexData) * kSphereVertexCount);// 球の描画なので「分割数(縦/緯度) x 分割数(横/経度) x 6」分必要
 
 	// WVP用のリソースを作る。Matrix4x4 1つ分のサイズを用意する
 	ID3D12Resource* wvpResource = CreateBufferResource(device, sizeof(Matrix4x4));
@@ -792,43 +798,65 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 	D3D12_VERTEX_BUFFER_VIEW vertexBufferView{};
 	// リソースの先頭アドレスから使う
 	vertexBufferView.BufferLocation = vertexResource->GetGPUVirtualAddress();
-	// 使用するリソースのサイズは頂点3つ分のサイズ（三角形2つなので6つ分）
-	vertexBufferView.SizeInBytes = sizeof(VertexData) * 6;
+	// 使用するリソースのサイズは頂点3つ分のサイズ（球の描画なので「分割数(縦/緯度) x 分割数(横/経度) x 6」分必要）
+	vertexBufferView.SizeInBytes = sizeof(VertexData) * kSphereVertexCount;
 	// 1頂点あたりのサイズ
 	vertexBufferView.StrideInBytes = sizeof(VertexData);
 #pragma endregion
 
-#pragma region Resourceにデータを書き込む（三角形）(CG2_02_00_44P)(CG2_03_00_31P)
+#pragma region Resourceにデータを書き込む（球）(CG2_02_00_44P)(CG2_03_00_31P)
 	// 頂点リソースにデータを書き込む
 	VertexData* vertexData = nullptr;
 	// 書き込むためのアドレスを取得
 	vertexResource->Map(0, nullptr, reinterpret_cast<void**>(&vertexData));
 
-	/*---------------
-	  1個目の三角形
-	---------------*/
-	// 左下
-	vertexData[0].position = { -0.5f,-0.5f,0.0f,1.0f };
-	vertexData[0].texcoord = { 0.0f,1.0f };
-	// 上
-	vertexData[1].position = { 0.0f,0.5f,0.0f,1.0f };
-	vertexData[1].texcoord = { 0.5f,0.0f };
-	// 右下
-	vertexData[2].position = { 0.5f,-0.5f,0.0f,1.0f };
-	vertexData[2].texcoord = { 1.0f,1.0f };
+	// 1周の角度刻み
+	const float pi = 3.14159265f;
+	const float kLonEvery = 2.0f * float(pi) / float(kSubdivision); // 経度
+	const float kLatEvery = float(pi) / float(kSubdivision);        // 緯度
 
-	/*---------------
-	  2個目の三角形
-	---------------*/
-	// 左下2
-	vertexData[3].position = { -0.5f,-0.5f,0.5f,1.0f };
-	vertexData[3].texcoord = { 0.0f,1.0f };
-	// 上2
-	vertexData[4].position = { 0.0f,0.0f,0.0f,1.0f };
-	vertexData[4].texcoord = { 0.5f,0.0f };
-	// 右下2
-	vertexData[5].position = { 0.5f,-0.5f,-0.5f,1.0f };
-	vertexData[5].texcoord = { 1.0f,1.0f };
+	for (uint32_t latIndex = 0; latIndex < kSubdivision; ++latIndex) {
+		float lat0 = -0.5f * float(pi) + kLatEvery * latIndex;
+		float lat1 = lat0 + kLatEvery;
+
+		for (uint32_t lonIndex = 0; lonIndex < kSubdivision; ++lonIndex) {
+			uint32_t start = (latIndex * kSubdivision + lonIndex) * 6;
+
+			float lon0 = kLonEvery * lonIndex;
+			float lon1 = lon0 + kLonEvery;
+
+			// a,b,c,d
+			Vector4 a = { cosf(lat0) * cosf(lon0), sinf(lat0), cosf(lat0) * sinf(lon0), 1.0f };
+			Vector4 b = { cosf(lat1) * cosf(lon0), sinf(lat1), cosf(lat1) * sinf(lon0), 1.0f };
+			Vector4 c = { cosf(lat0) * cosf(lon1), sinf(lat0), cosf(lat0) * sinf(lon1), 1.0f };
+			Vector4 d = { cosf(lat1) * cosf(lon1), sinf(lat1), cosf(lat1) * sinf(lon1), 1.0f };
+
+			float u0 = float(lonIndex) / float(kSubdivision);
+			float u1 = float(lonIndex + 1) / float(kSubdivision);
+			float v0 = 1.0f - float(latIndex) / float(kSubdivision);
+			float v1 = 1.0f - float(latIndex + 1) / float(kSubdivision);
+
+			// 三角形1 (a,b,c)
+			vertexData[start + 0].position = a;
+			vertexData[start + 0].texcoord = { u0, v0 };
+
+			vertexData[start + 1].position = b;
+			vertexData[start + 1].texcoord = { u0, v1 };
+
+			vertexData[start + 2].position = c;
+			vertexData[start + 2].texcoord = { u1, v0 };
+
+			// 三角形2 (c,b,d)
+			vertexData[start + 3].position = c;
+			vertexData[start + 3].texcoord = { u1, v0 };
+
+			vertexData[start + 4].position = b;
+			vertexData[start + 4].texcoord = { u0, v1 };
+
+			vertexData[start + 5].position = d;
+			vertexData[start + 5].texcoord = { u1, v1 };
+		}
+	}
 #pragma endregion
 
 #pragma endregion
@@ -987,7 +1015,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 #pragma endregion
 
 #pragma region 3次元的にする(CG2_02_02_19P)
-			Transform cameraTransform{ {1.0f,1.0f,1.0f},{0.0f,0.0f,0.0f},{0.0f,0.0f,-5.0f} };
+			Transform cameraTransform{ {1.0f,1.0f,1.0f},{0.0f,0.0f,0.0f},{0.0f,0.0f,-10.0f} };
 			Matrix4x4 projectionMatrix = MakePerspectiveFovMatrix(0.45f, float(kClientWidth) / float(kClientHeight), 0.1f, 100.0f);
 			Matrix4x4 worldMatrix = MakeAffineMatrix(transform.scale, transform.rotate, transform.translate);
 			Matrix4x4 cameraMatrix = MakeAffineMatrix(cameraTransform.scale, cameraTransform.rotate, cameraTransform.translate);
@@ -1084,8 +1112,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 			/*--------------------
 			* 　　描画本体処理
 			--------------------*/
-			// 三角形描画！（DrawCall/ドローコール）。3頂点で1つのインスタンス。
-			commandList->DrawInstanced(6, 1, 0, 0);
+			//球描画！（DrawCall/ドローコール）。3頂点で1つのインスタンス。
+			commandList->DrawInstanced(kSphereVertexCount, 1, 0, 0);
 #pragma region Spriteを描画する
 			// Sprite用のVBVに切り替え
 			commandList->IASetVertexBuffers(0, 1, &vertexBufferViewSprite);
