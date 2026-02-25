@@ -31,7 +31,30 @@ struct Transform {
 struct VertexData {
 	Vector4 position;
 	Vector2 texcoord;
+	Vector3 normal;
 };
+
+struct Material {
+	Vector4 color;
+	int32_t enableLighting;
+};
+
+struct TransformationMatrix {
+	Matrix4x4 WVP;
+	Matrix4x4 World;
+};
+
+struct DirectionalLight {
+	Vector4 color;// ライトの色
+	Vector3 direction;// ライトの向き
+	float intensity;// 輝度
+};
+
+Vector3 Normalize(const Vector3& v) {
+	float len = std::sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
+	if (len <= 1e-6f) { return { 0.0f, -1.0f, 0.0f }; }
+	return { v.x / len, v.y / len, v.z / len };
+}
 
 Matrix4x4 MakeIdentity4x4() {
 	Matrix4x4 identity;
