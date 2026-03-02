@@ -821,6 +821,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 	materialData->color = Vector4(1.0f, 1.0f, 1.0f, 0.5f);
 	// Lighting
 	materialData->enableLighting = 1;
+	// UVTransform行列を単位行列で初期化
+	materialData->uvTransform = MakeIdentity4x4();
 
 #pragma endregion
 
@@ -978,6 +980,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 	// 初期値設定
 	materialDataSprite->color = { 1.0f,1.0f,1.0f,1.0f };
 	materialDataSprite->enableLighting = 0;// SpriteはLightingなし
+	materialDataSprite->uvTransform = MakeIdentity4x4();
 #pragma endregion
 
 #pragma endregion
@@ -1115,6 +1118,10 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 			ImGui::DragFloat3("Light Direction", &directionalLightData->direction.x, 0.01f, -1.0f, 1.0f);
 			ImGui::DragFloat("Light Intensity", &directionalLightData->intensity, 0.01f, 0.0f, 10.0f);
 			directionalLightData->direction = Normalize(directionalLightData->direction);
+
+			ImGui::DragFloat2("UVTranslate", &uvTransformSprite.translate.x, 0.01f);
+			ImGui::DragFloat2("UVScale", &uvTransformSprite.scale.x, 0.01f);
+			ImGui::SliderAngle("UVRotate", &uvTransformSprite.rotate.z);
 #endif
 #pragma endregion
 
@@ -1144,6 +1151,12 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 			Matrix4x4 worldViewProjectionMatrixSprite = Multiply(worldMatrixSprite, Multiply(viewMatrixSprite, projectionMatrixSprite));
 			transformationMatrixDataSprite->WVP = worldViewProjectionMatrixSprite;
 			transformationMatrixDataSprite->World = worldMatrixSprite;
+			// UVTransform行列を作ってMaterialに書き込む（毎フレーム）
+			Matrix4x4 uvMatrix = MakeScaleMatrix(uvTransformSprite.scale);
+			uvMatrix = Multiply(uvMatrix, MakeRotateZMatrix(uvTransformSprite.rotate.z));
+			uvMatrix = Multiply(uvMatrix, MakeTranslateMatrix(uvTransformSprite.translate));
+
+			materialDataSprite->uvTransform = uvMatrix;
 #pragma endregion
 
 

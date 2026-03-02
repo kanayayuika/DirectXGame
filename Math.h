@@ -22,12 +22,21 @@ struct Matrix4x4 {
 	float m[4][4];
 };
 
+struct Matrix3x3 {
+	float m[3][3];
+};
+
 struct Transform {
 	Vector3 scale;
 	Vector3 rotate;
 	Vector3 translate;
 };
 
+Transform uvTransformSprite{
+	{1.0f, 1.0f, 1.0f}, // scale
+	{0.0f, 0.0f, 0.0f}, // rotate
+	{0.0f, 0.0f, 0.0f}  // translate
+};
 struct VertexData {
 	Vector4 position;
 	Vector2 texcoord;
@@ -37,6 +46,8 @@ struct VertexData {
 struct Material {
 	Vector4 color;
 	int32_t enableLighting;
+	float padding[3]; // Aligment
+	Matrix4x4 uvTransform;
 };
 
 struct TransformationMatrix {
@@ -132,7 +143,7 @@ Matrix4x4 MakePerspectiveFovMatrix(float fovY, float aspectRatio, float nearZ, f
 	mat.m[3][2] = -nearZ * farZ / (farZ - nearZ);
 	return mat;
 }
-Matrix4x4 MakeOrthographicMatrix(const float left, const float top, const float right, const float bottom,const float nearClip, const float farClip) {
+Matrix4x4 MakeOrthographicMatrix(const float left, const float top, const float right, const float bottom, const float nearClip, const float farClip) {
 	Matrix4x4 result = MakeIdentity4x4();
 
 	result.m[0][0] = 2.0f / (right - left);
