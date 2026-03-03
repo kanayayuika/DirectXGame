@@ -50,6 +50,15 @@ struct Material {
 	Matrix4x4 uvTransform;
 };
 
+struct MaterialData {
+	std::string textureFilePath;
+};
+
+struct ModelData {
+	std::vector<VertexData> vertices;
+	MaterialData material;
+};
+
 struct TransformationMatrix {
 	Matrix4x4 WVP;
 	Matrix4x4 World;
