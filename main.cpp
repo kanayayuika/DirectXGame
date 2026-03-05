@@ -33,6 +33,12 @@ extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg
 #endif
 #include "externals/DirectXTex/DirectXTex.h"
 #include <wrl.h>
+#include <xaudio2.h>
+#pragma comment(lib,"xaudio2.lib")
+#define DIRECTINPUT_VERSION 0x0800
+#include<dinput.h>
+#pragma comment(lib,"dinput8.lib")
+#pragma comment(lib,"dxguid.lib")
 #pragma endregion
 
 #pragma region ウィンドウプロシージャ(CG2_00_03_4P)
@@ -479,6 +485,94 @@ struct D3DResourceLeakChecker {
 #endif
 #pragma endregion
 
+#pragma region 音声データ（サウンド）の読み込み
+SoundData SoundLoadWave(const char* filename) {
+	HRESULT result;
+	// ファイルオープン
+	std::ifstream file;
+	file.open(filename, std::ios_base::binary);
+	assert(file.is_open());
+	// .wavデータ読み込み
+	RiffHeader riff;
+	file.read((char*)&riff, sizeof(riff));
+	// ファイルがRIFFかチェック
+	if (strncmp(riff.chunk.id, "RIFF", 4) != 0) {
+		assert(0);
+	}
+	// タイプがWAVEかチェック
+	if (strncmp(riff.type, "WAVE", 4) != 0) {
+		assert(0);
+	}
+	FormatChunk format = {};
+	file.read((char*)&format, sizeof(ChunkHeader));
+	if (strncmp(format.chunk.id, "fmt", 4) != 0) {
+		assert(0);
+	}
+	// チャンク本体の読み込み
+	assert(format.chunk.size <= sizeof(format.fmt));
+	file.read((char*)&format.fmt, format.chunk.size);
+	// Dataチャンクの読み込み
+	ChunkHeader data;
+	file.read((char*)&data, sizeof(data));
+	// JUNKチャンクを検出した場合
+	if (strncmp(data.id, "JUNK", 4) == 0) {
+		file.seekg(data.size, std::ios_base::cur);
+		// 再読み込み
+		file.read((char*)&data, sizeof(data));
+	}
+	if (strncmp(data.id, "data", 4) != 0) {
+		assert(0);
+	}
+	// Dataチャンクのデータ部（波形データ）の読み込み
+	char* pBuffer = new char[data.size];
+	file.read(pBuffer, data.size);
+	// Waveファイルを閉じる
+	file.close();
+
+	// 読み込んだ音声データをreturn
+	SoundData soundData = {};
+
+	soundData.wfex = format.fmt;
+	soundData.pBuffer = reinterpret_cast<BYTE*>(pBuffer);
+	soundData.bufferSize = data.size;
+
+	return soundData;
+}
+
+#pragma endregion
+
+#pragma region 音声データ（サウンド）の開放
+void SoundUnload(SoundData* soundData) {
+	// バッファのメモリを解放
+	delete[] soundData->pBuffer;
+
+	soundData->pBuffer = 0;
+	soundData->bufferSize = 0;
+	soundData->wfex = {};
+}
+#pragma endregion
+
+#pragma region サウンドの再生
+void SoundPlayWave(IXAudio2* xAudio2, const SoundData& soundData) {
+	HRESULT hr;
+
+	// 波形フォーマットを元にSourceVoiceの生成
+	IXAudio2SourceVoice* pSourceVoice = nullptr;
+	hr = xAudio2->CreateSourceVoice(&pSourceVoice, &soundData.wfex);
+	assert(SUCCEEDED(hr));
+
+	// 再生する波形ゲー他の設定
+	XAUDIO2_BUFFER buf{};
+	buf.pAudioData = soundData.pBuffer;
+	buf.AudioBytes = soundData.bufferSize;
+	buf.Flags = XAUDIO2_END_OF_STREAM;
+
+	// 波形データの再生
+	hr = pSourceVoice->SubmitSourceBuffer(&buf);
+	hr = pSourceVoice->Start();
+}
+#pragma endregion
+
 // Windowsアプリでのエントリーポイント
 int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 #ifdef _DEBUG
@@ -539,6 +633,11 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 	ShowWindow(hwnd, SW_SHOW);
 #pragma endregion
 
+#pragma endregion
+
+#pragma region サウンド(CG2_07_00_14P)
+	Microsoft::WRL::ComPtr<IXAudio2>xAudio2;
+	IXAudio2MasteringVoice* masterVoice;
 #pragma endregion
 
 #pragma region DebugLayer(CG2_01_01_3P)
@@ -739,6 +838,16 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 	assert(fenceEvent != nullptr);
 #pragma endregion
 
+#pragma region サウンド初期化処理/音声データの読み込み
+	hr = XAudio2Create(&xAudio2, 0, XAUDIO2_DEFAULT_PROCESSOR);
+	assert(SUCCEEDED(hr));
+	hr = xAudio2->CreateMasteringVoice(&masterVoice);
+	assert(SUCCEEDED(hr));
+
+	SoundData soundData1 = SoundLoadWave("resources/fanfare.wav");
+	// サウンド再生
+	SoundPlayWave(xAudio2.Get(), soundData1);
+#pragma endregion
 
 #pragma region 描画パイプラインの初期化（RootSig / PSO / Shader）
 #pragma region DXCの初期化(CG2_02_00_21P)
@@ -1395,7 +1504,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 #pragma endregion
 
 #pragma region 解放処理(CG2_01_03_7P)基本解放処理は生成と逆順に行う
-	// PSO解放処理
+	xAudio2.Reset();
+	SoundUnload(&soundData1);
 	CloseHandle(fenceEvent);
 	CloseWindow(hwnd);
 #pragma endregion

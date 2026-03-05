@@ -70,6 +70,34 @@ struct DirectionalLight {
 	float intensity;// 輝度
 };
 
+// チャンクヘッダ
+struct ChunkHeader {
+	char id[4]; // チャンク用のID
+	int32_t size; // チャンクサイズ
+};
+
+// RIFFヘッダチャンク
+struct RiffHeader {
+	ChunkHeader chunk;
+	char type[4];
+};
+
+// FMTチャンク
+struct FormatChunk {
+	ChunkHeader chunk;
+	WAVEFORMATEX fmt;
+};
+
+// 音声データ
+struct SoundData {
+	// 波形フォーマット
+	WAVEFORMATEX wfex;
+	// バッファの先頭アドレス
+	BYTE* pBuffer;
+	// バッファのサイズ
+	unsigned int bufferSize;
+};
+
 Vector3 Normalize(const Vector3& v) {
 	float len = std::sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
 	if (len <= 1e-6f) { return { 0.0f, -1.0f, 0.0f }; }
