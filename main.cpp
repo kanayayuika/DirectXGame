@@ -117,7 +117,7 @@ static LONG WINAPI ExportDump(EXCEPTION_POINTERS* exception) {
 #pragma endregion
 
 #pragma region CompileShader関数(CG2_02_00_22P)
-IDxcBlob* CompileShader(
+Microsoft::WRL::ComPtr <IDxcBlob> CompileShader(
 	// CompilerするShaderファイルへのパス
 	const std::wstring& filePath,
 	// Compilerに使用するProfile
@@ -175,7 +175,13 @@ IDxcBlob* CompileShader(
 	if (shaderError != nullptr && shaderError->GetStringLength() != 0) {
 		Log(shaderError->GetStringPointer());
 		// 警告・エラーダメゼッタイ
+		shaderError->Release();
+		shaderResult->Release();
+		shaderSource->Release();
 		assert(false);
+	}
+	if (shaderError) {
+		shaderError->Release();
 	}
 
 	/*==============================
@@ -459,6 +465,7 @@ ModelData LoadObjFile(const std::string& directoryPath, const std::string& filen
 #pragma endregion
 
 #pragma region リソースリークチェック(CG2_06_03_14P)
+#ifdef _DEBUG
 struct D3DResourceLeakChecker {
 	~D3DResourceLeakChecker() {
 		Microsoft::WRL::ComPtr<IDXGIDebug1> debug;
@@ -469,11 +476,14 @@ struct D3DResourceLeakChecker {
 		}
 	}
 };
+#endif
 #pragma endregion
 
 // Windowsアプリでのエントリーポイント
 int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
+#ifdef _DEBUG
 	D3DResourceLeakChecker leakCheck;
+#endif
 #pragma region Windows/COM の初期化
 
 #pragma region COMの初期化(CG2_03_00_13P)
@@ -621,8 +631,6 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 		infoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_ERROR, true);
 		// 警告時に止まる（警告一発目で停止するのでその後の流れが見れなくて困る場合は、ここをコメントアウトする）
 		infoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_WARNING, true);
-		// 解放
-		infoQueue->Release();
 	}
 #endif
 #pragma endregion
@@ -735,15 +743,15 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 #pragma region 描画パイプラインの初期化（RootSig / PSO / Shader）
 #pragma region DXCの初期化(CG2_02_00_21P)
 	// dxcCompilerを初期化
-	IDxcUtils* dxcUtils = nullptr;
-	IDxcCompiler3* dxcCompiler = nullptr;
-	hr = DxcCreateInstance(CLSID_DxcUtils, IID_PPV_ARGS(&dxcUtils));
+	Microsoft::WRL::ComPtr<IDxcUtils> dxcUtils;
+	Microsoft::WRL::ComPtr<IDxcCompiler3> dxcCompiler;
+	hr = DxcCreateInstance(CLSID_DxcUtils, IID_PPV_ARGS(dxcUtils.GetAddressOf()));
 	assert(SUCCEEDED(hr));
-	hr = DxcCreateInstance(CLSID_DxcCompiler, IID_PPV_ARGS(&dxcCompiler));
+	hr = DxcCreateInstance(CLSID_DxcCompiler, IID_PPV_ARGS(dxcCompiler.GetAddressOf()));
 	assert(SUCCEEDED(hr));
 
-	IDxcIncludeHandler* includeHandler = nullptr;
-	hr = dxcUtils->CreateDefaultIncludeHandler(&includeHandler);
+	Microsoft::WRL::ComPtr<IDxcIncludeHandler> includeHandler;
+	hr = dxcUtils->CreateDefaultIncludeHandler(includeHandler.GetAddressOf());
 	assert(SUCCEEDED(hr));
 #pragma endregion
 
@@ -805,8 +813,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 	descriptionRootSignature.NumStaticSamplers = _countof(staticSamplers);
 #pragma endregion
 	// シリアライズしてバイナリにする
-	ID3DBlob* signatureBlob = nullptr;
-	ID3DBlob* errorBlob = nullptr;
+	Microsoft::WRL::ComPtr <ID3DBlob> signatureBlob = nullptr;
+	Microsoft::WRL::ComPtr <ID3DBlob> errorBlob = nullptr;
 	hr = D3D12SerializeRootSignature(&descriptionRootSignature, D3D_ROOT_SIGNATURE_VERSION_1, &signatureBlob, &errorBlob);
 	if (FAILED(hr)) {
 		Log(reinterpret_cast<char*>(errorBlob->GetBufferPointer()));
@@ -856,10 +864,10 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
 #pragma region ShaderをCompileする
 	// Shaderをコンパイルする
-	IDxcBlob* vertexShaderBlob = CompileShader(L"Object3D.VS.hlsl", L"vs_6_0", dxcUtils, dxcCompiler, includeHandler);
+	Microsoft::WRL::ComPtr <IDxcBlob> vertexShaderBlob = CompileShader(L"Object3D.VS.hlsl", L"vs_6_0", dxcUtils.Get(), dxcCompiler.Get(), includeHandler.Get());
 	assert(vertexShaderBlob != nullptr);
 
-	IDxcBlob* pixelShaderBlob = CompileShader(L"Object3D.PS.hlsl", L"ps_6_0", dxcUtils, dxcCompiler, includeHandler);
+	Microsoft::WRL::ComPtr<IDxcBlob> pixelShaderBlob = CompileShader(L"Object3D.PS.hlsl", L"ps_6_0", dxcUtils.Get(), dxcCompiler.Get(), includeHandler.Get());
 	assert(pixelShaderBlob != nullptr);
 #pragma endregion
 
@@ -1377,9 +1385,6 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
 		}
 	}
-#pragma region COMの初期化(CG2_03_00_13P)
-	CoUninitialize();
-#pragma endregion
 
 #pragma region ImGui終了処理（初期化と逆順に行う）(CG2_02_03_18P)
 #ifdef USE_IMGUI
@@ -1391,15 +1396,12 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
 #pragma region 解放処理(CG2_01_03_7P)基本解放処理は生成と逆順に行う
 	// PSO解放処理
-	signatureBlob->Release();
-	if (errorBlob) {
-		errorBlob->Release();
-	}
-	pixelShaderBlob->Release();
-	vertexShaderBlob->Release();
 	CloseHandle(fenceEvent);
 	CloseWindow(hwnd);
 #pragma endregion
 
+#pragma region COMの初期化(CG2_03_00_13P)
+	CoUninitialize();
+#pragma endregion
 	return 0;
 }
