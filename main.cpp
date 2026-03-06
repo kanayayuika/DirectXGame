@@ -34,12 +34,17 @@ extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg
 #include "externals/DirectXTex/DirectXTex.h"
 #include <wrl.h>
 #include <xaudio2.h>
+#include "DebugCamera.h"
 #pragma comment(lib,"xaudio2.lib")
+#ifndef DIRECTINPUT_VERSION
 #define DIRECTINPUT_VERSION 0x0800
-#include<dinput.h>
+#endif
+#include <dinput.h>
 #pragma comment(lib,"dinput8.lib")
 #pragma comment(lib,"dxguid.lib")
 #pragma endregion
+
+int gMouseWheel = 0;
 
 #pragma region ウィンドウプロシージャ(CG2_00_03_4P)
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
@@ -50,6 +55,9 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
 #endif
 	// メッセージに応じてゲーム固有の処理を行う
 	switch (msg) {
+	case WM_MOUSEWHEEL:
+		gMouseWheel += GET_WHEEL_DELTA_WPARAM(wparam);
+		return 0;
 		// ウィンドウが破棄された
 	case WM_DESTROY:
 		// OSに対して、アプリの終了を伝える
@@ -485,7 +493,7 @@ struct D3DResourceLeakChecker {
 #endif
 #pragma endregion
 
-#pragma region 音声データ（サウンド）の読み込み
+#pragma region 音声データ（サウンド）の読み込み(CG2_07_00)
 SoundData SoundLoadWave(const char* filename) {
 	// ファイルオープン
 	std::ifstream file;
@@ -539,7 +547,7 @@ SoundData SoundLoadWave(const char* filename) {
 
 #pragma endregion
 
-#pragma region 音声データ（サウンド）の開放
+#pragma region 音声データ（サウンド）の開放(CG2_07_00)
 void SoundUnload(SoundData* soundData) {
 	// バッファのメモリを解放
 	delete[] soundData->pBuffer;
@@ -550,7 +558,7 @@ void SoundUnload(SoundData* soundData) {
 }
 #pragma endregion
 
-#pragma region サウンドの再生
+#pragma region サウンドの再生(CG2_07_00)
 void SoundPlayWave(IXAudio2* xAudio2, const SoundData& soundData) {
 	HRESULT hr;
 
@@ -571,7 +579,7 @@ void SoundPlayWave(IXAudio2* xAudio2, const SoundData& soundData) {
 }
 #pragma endregion
 
-#pragma region キー入力判定関数
+#pragma region キー入力判定関数(CG2_07_01)
 // 押してる間
 inline bool IsPress(const BYTE* keys, uint8_t key) {
 	return (keys[key] & 0x88) != 0;
@@ -1330,7 +1338,11 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 #pragma endregion
 
 #pragma region 変数宣言（1度のみ）
+	// デバックカメラ
+	DebugCamera debugCamera;
+	debugCamera.Initialize((float)kClientWidth, (float)kClientHeight);
 	bool useMonsterBall = true;
+	bool isDebugCamera = false;
 	MSG msg{};
 	static BYTE keys[256] = {};
 	static BYTE preKeys[256] = {};
@@ -1354,6 +1366,9 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 			if (gamepad) {
 				gamepad->Acquire();
 				gamepad->GetDeviceState(sizeof(DIJOYSTATE2), &js);
+			}
+			if (keys[DIK_F1] && !preKeys[DIK_F1]) {
+				isDebugCamera = !isDebugCamera;
 			}
 #pragma endregion
 			/*--------------------
@@ -1392,51 +1407,71 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 #endif
 #pragma endregion
 
-#pragma region Transformの更新処理(CG2_02_02_15P)
+			//transform.rotate.y += 0.03f;
 
-			transform.rotate.y += 0.03f;
-			// キーボード
-			if (IsPress(keys, DIK_W)) {
-				transform.translate.y += 0.1f;
+			if (isDebugCamera) {
+				debugCamera.Update(keys, preKeys, hwnd, gMouseWheel);
+				gMouseWheel = 0;
 			}
-			if (IsPress(keys, DIK_S)) {
-				transform.translate.y -= 0.1f;
-			}
-			if (IsPress(keys, DIK_A)) {
-				transform.translate.x -= 0.1f;
-			}
-			if (IsPress(keys, DIK_D)) {
-				transform.translate.x += 0.1f;
-			}
-			// ゲームパッド(500はデッドゾーン)
-			long centerX = 32767;
-			long centerY = 32766;
-			long deadZone = 5000;
-			if (gamepad) {
-				if (js.lX < centerX - deadZone) {
-					transform.translate.x -= 0.1f;
-				}
-				if (js.lX > centerX + deadZone) {
-					transform.translate.x += 0.1f;
-				}
-				if (js.lY < centerY - deadZone) {
+			else {
+#pragma region Transformの更新処理(CG2_02_02_15P)
+				// キーボード
+				if (IsPress(keys, DIK_W)) {
 					transform.translate.y += 0.1f;
 				}
-				if (js.lY > centerY + deadZone) {
+				if (IsPress(keys, DIK_S)) {
 					transform.translate.y -= 0.1f;
 				}
-			}
+				if (IsPress(keys, DIK_A)) {
+					transform.translate.x -= 0.1f;
+				}
+				if (IsPress(keys, DIK_D)) {
+					transform.translate.x += 0.1f;
+				}
+				// ゲームパッド(500はデッドゾーン)
+				long centerX = 32767;
+				long centerY = 32766;
+				long deadZone = 5000;
+				if (gamepad) {
+					if (js.lX < centerX - deadZone) {
+						transform.translate.x -= 0.1f;
+					}
+					if (js.lX > centerX + deadZone) {
+						transform.translate.x += 0.1f;
+					}
+					if (js.lY < centerY - deadZone) {
+						transform.translate.y += 0.1f;
+					}
+					if (js.lY > centerY + deadZone) {
+						transform.translate.y -= 0.1f;
+					}
+				}
 #pragma endregion
+			}
 
 #pragma region 3次元的にする(CG2_02_02_19P)
 			Transform cameraTransform{ {1.0f,1.0f,1.0f},{0.0f,0.0f,0.0f},{0.0f,0.0f,-10.0f} };
-			Matrix4x4 projectionMatrix = MakePerspectiveFovMatrix(0.45f, float(kClientWidth) / float(kClientHeight), 0.1f, 100.0f);
+			//Matrix4x4 projectionMatrix = MakePerspectiveFovMatrix(0.45f, float(kClientWidth) / float(kClientHeight), 0.1f, 100.0f);
 			Matrix4x4 worldMatrix = MakeAffineMatrix(transform.scale, transform.rotate, transform.translate);
 			Matrix4x4 cameraMatrix = MakeAffineMatrix(cameraTransform.scale, cameraTransform.rotate, cameraTransform.translate);
-			Matrix4x4 viewMatrix = Inverse(cameraMatrix);
-			Matrix4x4 worldViewProjectionMatrix = Multiply(worldMatrix, Multiply(viewMatrix, projectionMatrix));
+			Matrix4x4 normalViewMatrix = Inverse(cameraMatrix);
+			Matrix4x4 normalProjectionMatrix = MakePerspectiveFovMatrix(0.45f, float(kClientWidth) / float(kClientHeight), 0.1f, 100.0f);
 
-			wvpData->WVP = worldViewProjectionMatrix;
+			Matrix4x4 viewMatrix;
+			Matrix4x4 projectionMatrix;
+			// DebugCamera 行列計算
+			if (isDebugCamera) {
+				viewMatrix = debugCamera.GetViewMatrix();
+				projectionMatrix = debugCamera.GetProjectionMatrix();
+			}
+			else {
+				viewMatrix = normalViewMatrix;
+				projectionMatrix = normalProjectionMatrix;
+			}
+
+			Matrix4x4 wordlViewProjectionMatrix = Multiply(worldMatrix, Multiply(viewMatrix, projectionMatrix));
+
+			wvpData->WVP = wordlViewProjectionMatrix;
 			wvpData->World = worldMatrix;
 #pragma endregion
 
