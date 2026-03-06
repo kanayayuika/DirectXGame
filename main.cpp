@@ -487,7 +487,6 @@ struct D3DResourceLeakChecker {
 
 #pragma region 音声データ（サウンド）の読み込み
 SoundData SoundLoadWave(const char* filename) {
-	HRESULT result;
 	// ファイルオープン
 	std::ifstream file;
 	file.open(filename, std::ios_base::binary);
@@ -505,9 +504,8 @@ SoundData SoundLoadWave(const char* filename) {
 	}
 	FormatChunk format = {};
 	file.read((char*)&format, sizeof(ChunkHeader));
-	if (strncmp(format.chunk.id, "fmt", 4) != 0) {
-		assert(0);
-	}
+	int cmp = strncmp(format.chunk.id, "fmt ", 4);
+	assert(cmp == 0);
 	// チャンク本体の読み込み
 	assert(format.chunk.size <= sizeof(format.fmt));
 	file.read((char*)&format.fmt, format.chunk.size);
@@ -570,6 +568,30 @@ void SoundPlayWave(IXAudio2* xAudio2, const SoundData& soundData) {
 	// 波形データの再生
 	hr = pSourceVoice->SubmitSourceBuffer(&buf);
 	hr = pSourceVoice->Start();
+}
+#pragma endregion
+
+#pragma region キー入力判定関数
+// 押してる間
+inline bool IsPress(const BYTE* keys, uint8_t key) {
+	return (keys[key] & 0x88) != 0;
+}
+// 押した瞬間
+inline bool IsTrigger(const BYTE* keys, const BYTE* preKeys, uint8_t key) {
+	return !IsPress(preKeys, key) && IsPress(keys, key);
+}
+// 離した瞬間
+inline bool IsRelease(const BYTE* keys, const BYTE* preKeys, uint8_t key) {
+	return IsPress(preKeys, key) && !IsPress(keys, key);
+}
+#pragma endregion
+
+#pragma region コールバック関数
+BOOL CALLBACK EnumGamepadCallback(const DIDEVICEINSTANCE* instance, VOID* context) {
+	auto* p = reinterpret_cast<std::pair<bool*, GUID*>*>(context);
+	*p->first = true;
+	*p->second = instance->guidInstance;
+	return DIENUM_STOP; // 1つ見つけたら終了
 }
 #pragma endregion
 
@@ -838,13 +860,60 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 	assert(fenceEvent != nullptr);
 #pragma endregion
 
+#pragma region 描画初期化処理（CG2_07_01_11P）
+	/*===============
+	  キーボード入力
+	===============*/
+	IDirectInput8* directInput = nullptr;
+	IDirectInputDevice8* keyboard = nullptr;
+
+	// DirectInputの初期化
+	hr = DirectInput8Create(wc.hInstance, DIRECTINPUT_VERSION, IID_IDirectInput8, (void**)&directInput, nullptr);
+	assert(SUCCEEDED(hr));
+	hr = directInput->CreateDevice(GUID_SysKeyboard, &keyboard, NULL);
+	assert(SUCCEEDED(hr));
+	// 入力データ形式の設定
+	hr = keyboard->SetDataFormat(&c_dfDIKeyboard);
+	assert(SUCCEEDED(hr));
+	// 排他制御レベル
+	hr = keyboard->SetCooperativeLevel(hwnd, DISCL_FOREGROUND | DISCL_NONEXCLUSIVE | DISCL_NOWINKEY);
+	assert(SUCCEEDED(hr));
+
+	/*===============
+	  ゲームパッド入力
+	===============*/
+	GUID gamepadGuid{};
+	bool foundGamepad = false;
+	IDirectInputDevice8* gamepad = nullptr;
+
+	// EnumDevicesに渡す情報（foundとguid両方を渡す）
+	auto ctx = std::pair<bool*, GUID*>{ &foundGamepad, &gamepadGuid };
+
+	hr = directInput->EnumDevices(DI8DEVCLASS_GAMECTRL, EnumGamepadCallback, &ctx, DIEDFL_ATTACHEDONLY);
+	assert(SUCCEEDED(hr));
+
+	// 見つかった時だけ CreateDevice する
+	if (foundGamepad) {
+		hr = directInput->CreateDevice(gamepadGuid, &gamepad, NULL);
+		assert(SUCCEEDED(hr));
+
+		// ★必須：データ形式
+		hr = gamepad->SetDataFormat(&c_dfDIJoystick2);
+		assert(SUCCEEDED(hr));
+
+		// ★必須：排他レベル（hwndはあなたの変数名に合わせて）
+		hr = gamepad->SetCooperativeLevel(hwnd, DISCL_FOREGROUND | DISCL_NONEXCLUSIVE);
+		assert(SUCCEEDED(hr));
+	}
+#pragma endregion
+
 #pragma region サウンド初期化処理/音声データの読み込み
 	hr = XAudio2Create(&xAudio2, 0, XAUDIO2_DEFAULT_PROCESSOR);
 	assert(SUCCEEDED(hr));
 	hr = xAudio2->CreateMasteringVoice(&masterVoice);
 	assert(SUCCEEDED(hr));
 
-	SoundData soundData1 = SoundLoadWave("resources/fanfare.wav");
+	SoundData soundData1 = SoundLoadWave("C:/Windows/Media/Alarm01.wav");
 	// サウンド再生
 	SoundPlayWave(xAudio2.Get(), soundData1);
 #pragma endregion
@@ -1260,8 +1329,12 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
 #pragma endregion
 
+#pragma region 変数宣言（1度のみ）
 	bool useMonsterBall = true;
 	MSG msg{};
+	static BYTE keys[256] = {};
+	static BYTE preKeys[256] = {};
+#pragma endregion
 	// ウィンドウの×ボタンが押されるまでループ
 	while (msg.message != WM_QUIT) {
 
@@ -1271,7 +1344,18 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 			DispatchMessage(&msg);
 		}
 		else {
-
+#pragma region キー設定
+			// キーボード
+			memcpy(preKeys, keys, 256);
+			keyboard->Acquire();
+			keyboard->GetDeviceState(256, keys);
+			// ゲームパッド
+			DIJOYSTATE2 js{};
+			if (gamepad) {
+				gamepad->Acquire();
+				gamepad->GetDeviceState(sizeof(DIJOYSTATE2), &js);
+			}
+#pragma endregion
 			/*--------------------
 			* 　　　更新処理
 			--------------------*/
@@ -1298,13 +1382,50 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 			ImGui::DragFloat2("UVTranslate", &uvTransformSprite.translate.x, 0.01f);
 			ImGui::DragFloat2("UVScale", &uvTransformSprite.scale.x, 0.01f);
 			ImGui::SliderAngle("UVRotate", &uvTransformSprite.rotate.z);
+			// ゲームパッド確認
+			if (gamepad) {
+				ImGui::Text("Pad lX=%ld lY=%ld", js.lX, js.lY);
+			}
+			else {
+				ImGui::Text("Pad: not found");
+			}
 #endif
 #pragma endregion
 
 #pragma region Transformの更新処理(CG2_02_02_15P)
+
 			transform.rotate.y += 0.03f;
-			/*Matrix4x4 worldMatrix = MakeAffineMatrix(transform.scale, transform.rotate, transform.translate);
-			*wvpData = worldMatrix;*/
+			// キーボード
+			if (IsPress(keys, DIK_W)) {
+				transform.translate.y += 0.1f;
+			}
+			if (IsPress(keys, DIK_S)) {
+				transform.translate.y -= 0.1f;
+			}
+			if (IsPress(keys, DIK_A)) {
+				transform.translate.x -= 0.1f;
+			}
+			if (IsPress(keys, DIK_D)) {
+				transform.translate.x += 0.1f;
+			}
+			// ゲームパッド(500はデッドゾーン)
+			long centerX = 32767;
+			long centerY = 32766;
+			long deadZone = 5000;
+			if (gamepad) {
+				if (js.lX < centerX - deadZone) {
+					transform.translate.x -= 0.1f;
+				}
+				if (js.lX > centerX + deadZone) {
+					transform.translate.x += 0.1f;
+				}
+				if (js.lY < centerY - deadZone) {
+					transform.translate.y += 0.1f;
+				}
+				if (js.lY > centerY + deadZone) {
+					transform.translate.y -= 0.1f;
+				}
+			}
 #pragma endregion
 
 #pragma region 3次元的にする(CG2_02_02_19P)
